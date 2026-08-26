@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Game: วงจรการทำงานของคอมพิวเตอร์</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap');
+        body { font-family: 'Kanit', sans-serif; user-select: none; }
+        
+        /* Premium Glassmorphism */
+        .glass {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-top: 1px solid rgba(255, 255, 255, 0.4);
+            border-left: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4), inset 0 0 20px rgba(255,255,255,0.05);
+        }
+
+        /* Animated Background for Screens */
+        .bg-animated {
+            background: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%);
+            position: relative;
+        }
+        .bg-animated::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjEpIi8+PC9zdmc+') repeat;
+            z-index: -1;
+        }
+
+        /* Glow Text */
+        .text-glow {
+            text-shadow: 0 0 10px currentColor;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 overflow-hidden w-screen h-screen relative text-white">
+
+    <!-- Video Element -->
+    <video id="video" class="hidden" autoplay playsinline></video>
+    
+    <!-- Scanline / Vignette Overlay (AR Effect) -->
+    <div class="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_150px_rgba(0,0,0,0.8)]"></div>
+    <div class="absolute inset-0 pointer-events-none z-20 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px]"></div>
+
+    <!-- Canvas Element -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full z-10 block"></canvas>
+
+    <!-- UI Overlay: Start Screen -->
+    <div id="startScreen" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-animated bg-opacity-90 backdrop-blur-md">
+        <div class="glass p-12 rounded-3xl text-center max-w-xl transform transition hover:scale-[1.02] duration-300">
+            <div class="inline-block p-4 rounded-full bg-blue-500/20 mb-4 animate-pulse">
+                <span class="text-6xl">🕶️</span>
+            </div>
+            <h1 class="text-5xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 drop-shadow-lg">AR System Sorting</h1>
+            <p class="text-xl mb-8 text-blue-100/80 font-light">จัดหมวดหมู่อุปกรณ์คอมพิวเตอร์ผ่านโลกเสมือน</p>
+            <button id="btnStartGame" class="group relative px-10 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full font-bold text-2xl shadow-[0_0_20px_rgba(6,182,212,0.5)] transform transition-all duration-300 hover:scale-110 hover:shadow-[0_0_40px_rgba(6,182,212,0.7)] active:scale-95 border border-cyan-300/50">
+                <span class="absolute inset-0 w-full h-full rounded-full bg-white/20 group-hover:animate-ping opacity-0 group-hover:opacity-100"></span>
+                เข้าสู่ระบบ (Start)
+            </button>
+            <p class="mt-6 text-sm text-cyan-300/60 font-light tracking-wide">* รองรับระบบสัมผัสและเมาส์ในกรณีที่กล้องไม่พร้อมใช้งาน</p>
+        </div>
+    </div>
+
+    <!-- UI Overlay: HUD -->
+    <div id="hud" class="hidden absolute top-6 left-0 w-full z-40 flex justify-between px-10 pointer-events-none">
+        <div class="glass px-8 py-3 rounded-2xl text-xl font-bold border-l-4 border-l-cyan-400">
+            LEVEL <span id="levelDisplay" class="text-cyan-400 text-2xl ml-2">1</span>
+        </div>
+        <div class="glass px-10 py-3 rounded-2xl text-lg font-medium text-center shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+            <span class="text-white">จำแนกอุปกรณ์ลงในฐานข้อมูล</span><br>
+            <span class="text-sm text-cyan-300 tracking-widest">(INPUT • PROCESS • OUTPUT)</span>
+        </div>
+        <div class="glass px-8 py-3 rounded-2xl text-xl font-bold border-r-4 border-r-emerald-400">
+            SCORE <span id="scoreDisplay" class="text-emerald-400 text-2xl ml-2 text-glow">0</span>
+        </div>
+    </div>
+
+    <!-- UI Overlay: Warning -->
+    <div id="warningMsg" class="hidden absolute top-1/3 left-1/2 transform -translate-x-1/2 z-50 glass bg-rose-500/20 border border-rose-500/50 px-8 py-4 rounded-full text-rose-300 font-bold animate-pulse pointer-events-none shadow-[0_0_20px_rgba(244,63,94,0.4)] flex items-center gap-3">
+        <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        กำลังสแกนหามือของคุณ...
+    </div>
+
+    <!-- UI Overlay: Game Over -->
+    <div id="gameOverScreen" class="hidden absolute inset-0 z-50 flex flex-col items-center justify-center bg-animated bg-opacity-95 backdrop-blur-xl">
+        <div class="glass p-16 rounded-[40px] text-center border border-emerald-500/30 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-400 via-cyan-400 to-emerald-400"></div>
+            <h1 class="text-7xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-br from-emerald-300 to-cyan-500 drop-shadow-[0_0_30px_rgba(52,211,153,0.5)]">SYSTEM CLEARED</h1>
+            <p class="text-2xl mb-4 text-emerald-100/80">จัดเรียงข้อมูลสำเร็จทุกขั้นตอน</p>
+            <div class="my-8 p-6 bg-black/30 rounded-2xl border border-white/10 inline-block">
+                <p class="text-lg text-gray-400 mb-1">TOTAL SCORE</p>
+                <p class="text-6xl font-bold text-white text-glow"><span id="finalScore" class="text-emerald-400"></span></p>
+            </div>
+            <br>
+            <button onclick="location.reload()" class="px-10 py-4 bg-white text-emerald-900 rounded-full font-bold text-xl shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:bg-emerald-50 transition-all hover:scale-105 active:scale-95">
+                REBOOT SYSTEM
+            </button>
+        </div>
+    </div>
+
+<script>
+    // ---------------- Data & Variables ----------------
+    const equipmentDB = [
+        { id: 1, name: 'คีย์บอร์ด', type: 'input', emoji: '⌨️' },
+        { id: 2, name: 'เมาส์', type: 'input', emoji: '🖱️' },
+        { id: 3, name: 'ไมโครโฟน', type: 'input', emoji: '🎤' },
+        { id: 4, name: 'กล้องเว็บแคม', type: 'input', emoji: '📷' },
+        { id: 5, name: 'สแกนเนอร์', type: 'input', emoji: '🖨️' },
+        { id: 6, name: 'ซีพียู (CPU)', type: 'process', emoji: '🧠' },
+        { id: 7, name: 'แรม (RAM)', type: 'process', emoji: '🗄️' },
+        { id: 8, name: 'การ์ดจอ (GPU)', type: 'process', emoji: '🎮' },
+        { id: 9, name: 'เมนบอร์ด', type: 'process', emoji: '⚙️' },
+        { id: 10, name: 'จอภาพ (Monitor)', type: 'output', emoji: '🖥️' },
+        { id: 11, name: 'เครื่องพิมพ์ (Printer)', type: 'output', emoji: '🖨️' },
+        { id: 12, name: 'ลำโพง (Speaker)', type: 'output', emoji: '🔊' },
+        { id: 13, name: 'หูฟัง (Headphones)', type: 'output', emoji: '🎧' }
+    ];
+
+    const GAME_STATES = { START: 0, INSTRUCTIONS: 1, PLAYING: 2, GAME_OVER: 3 };
+    let currentState = GAME_STATES.START;
+    
+    let canvas, ctx;
+    let videoFrame = null;
+    let canvasW = 1280, canvasH = 720;
+
+    let currentLevel = 1;
+    let score = 0;
+    let activeCards = [];
+    let dropZones = [];
+    let startBtnData = { x: 0, y: 0, w: 260, h: 90, text: 'INITIATE' };
+    
+    let targetCursor = { x: canvasW/2, y: canvasH/2 };
+    let cursor = { x: canvasW/2, y: canvasH/2 };
+    let isPinching = false;
+    let wasPinching = false;
+    let cursorState = 'normal';
+    let missTimer = 0;
+    let grabbedCard = null;
+    let grabbedOffset = { x: 0, y: 0 };
+    
+    let lastHandDetectedTime = Date.now();
+    let handLandmarks = null;
+    let usingMouse = false;
+
+    // ---------------- Initialization ----------------
+    window.onload = () => {
+        canvas = document.getElementById('gameCanvas');
+        ctx = canvas.getContext('2d');
+        canvas.width = canvasW;
+        canvas.height = canvasH;
+
+        const resize = () => {
+            let ratio = window.innerWidth / window.innerHeight;
+            if(ratio > 16/9) {
+                canvas.style.width = 'auto';
+                canvas.style.height = '100%';
+            } else {
+                canvas.style.width = '100%';
+                canvas.style.height = 'auto';
+            }
+        };
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Setup Drop Zones with Sci-Fi colors
+        const zoneW = canvasW / 3;
+        const zoneH = 180;
+        const zoneY = canvasH - zoneH;
+        dropZones = [
+            { id: 'input', label: 'INPUT (นำเข้า)', colorStr: '6, 182, 212', x: 0, y: zoneY, w: zoneW, h: zoneH },
+            { id: 'process', label: 'PROCESS (ประมวลผล)', colorStr: '168, 85, 247', x: zoneW, y: zoneY, w: zoneW, h: zoneH },
+            { id: 'output', label: 'OUTPUT (แสดงผล)', colorStr: '34, 197, 94', x: zoneW * 2, y: zoneY, w: zoneW, h: zoneH }
+        ];
+
+        document.getElementById('btnStartGame').addEventListener('click', () => {
+            document.getElementById('startScreen').classList.add('hidden');
+            setupInstructions();
+            initMediaPipe();
+        });
+
+        setupFallbackControls();
+        requestAnimationFrame(drawLoop);
+    };
+
+    function setupInstructions() {
+        currentState = GAME_STATES.INSTRUCTIONS;
+        startBtnData.x = (canvasW - startBtnData.w) / 2;
+        startBtnData.y = canvasH / 2;
+    }
+
+    function startLevel() {
+        currentState = GAME_STATES.PLAYING;
+        document.getElementById('hud').classList.remove('hidden');
+        document.getElementById('levelDisplay').innerText = currentLevel;
+        
+        activeCards = [];
+        let numCards = currentLevel === 1 ? 3 : (currentLevel === 2 ? 5 : 7);
+        let shuffled = [...equipmentDB].sort(() => 0.5 - Math.random());
+        
+        for(let i = 0; i < numCards; i++) {
+            let item = shuffled[i];
+            activeCards.push({
+                ...item,
+                x: 100 + Math.random() * (canvasW - 300),
+                y: 80 + Math.random() * (canvasH/2 - 120),
+                w: 160, h: 200,
+                baseY: Math.random() * 1000 // For floating animation
+            });
+        }
+    }
+
+    // ---------------- MediaPipe Logic ----------------
+    function initMediaPipe() {
+        const videoElement = document.getElementById('video');
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 1280, height: 720
+        });
+        camera.start();
+    }
+
+    function onResults(results) {
+        videoFrame = results.image;
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            lastHandDetectedTime = Date.now();
+            handLandmarks = results.multiHandLandmarks[0];
+            usingMouse = false;
+            
+            const indexTip = handLandmarks[8];
+            const thumbTip = handLandmarks[4];
+            const targetX = (1 - indexTip.x) * canvasW;
+            const targetY = indexTip.y * canvasH;
+            
+            targetCursor.x = targetX;
+            targetCursor.y = targetY;
+
+            const thumbX = (1 - thumbTip.x) * canvasW;
+            const thumbY = thumbTip.y * canvasH;
+            const distance = Math.sqrt(Math.pow(targetX - thumbX, 2) + Math.pow(targetY - thumbY, 2));
+            isPinching = distance < 45;
+        } else {
+            handLandmarks = null;
+        }
+    }
+
+    // ---------------- Fallback Controls ----------------
+    function setupFallbackControls() {
+        const updateMousePos = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvasW / rect.width;
+            const scaleY = canvasH / rect.height;
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            targetCursor.x = (clientX - rect.left) * scaleX;
+            targetCursor.y = (clientY - rect.top) * scaleY;
+            usingMouse = true;
+            lastHandDetectedTime = Date.now();
+        };
+
+        window.addEventListener('mousemove', updateMousePos);
+        window.addEventListener('touchmove', (e) => { updateMousePos(e); e.preventDefault(); }, {passive:false});
+        
+        const triggerPinch = () => { isPinching = true; usingMouse = true; lastHandDetectedTime = Date.now(); };
+        const releasePinch = () => { isPinching = false; };
+
+        window.addEventListener('mousedown', triggerPinch);
+        window.addEventListener('touchstart', triggerPinch);
+        window.addEventListener('mouseup', releasePinch);
+        window.addEventListener('touchend', releasePinch);
+    }
+
+    // ---------------- Game Logic ----------------
+    function checkInteractions() {
+        cursor.x += (targetCursor.x - cursor.x) * 0.4;
+        cursor.y += (targetCursor.y - cursor.y) * 0.4;
+
+        let justPinched = isPinching && !wasPinching;
+        let justReleased = !isPinching && wasPinching;
+        wasPinching = isPinching;
+
+        const warningEl = document.getElementById('warningMsg');
+        if (!usingMouse && Date.now() - lastHandDetectedTime > 1500 && currentState !== GAME_STATES.START) {
+            warningEl.classList.remove('hidden');
+        } else {
+            warningEl.classList.add('hidden');
+        }
+
+        if (currentState === GAME_STATES.INSTRUCTIONS) {
+            if (isHovering(cursor.x, cursor.y, startBtnData)) {
+                cursorState = isPinching ? 'grab' : 'hover';
+                if (justPinched) startLevel();
+            } else {
+                if (justPinched) triggerMiss();
+                if (!isPinching && missTimer <= 0) cursorState = 'normal';
+            }
+        } 
+        else if (currentState === GAME_STATES.PLAYING) {
+            if (grabbedCard) {
+                cursorState = 'grab';
+                grabbedCard.x = cursor.x - grabbedOffset.x;
+                grabbedCard.y = cursor.y - grabbedOffset.y;
+
+                if (justReleased) {
+                    let droppedZone = dropZones.find(z => isHovering(cursor.x, cursor.y, z));
+                    if (droppedZone && droppedZone.id === grabbedCard.type) {
+                        score += 100;
+                        document.getElementById('scoreDisplay').innerText = score;
+                        activeCards = activeCards.filter(c => c !== grabbedCard);
+                        
+                        if (activeCards.length === 0) {
+                            currentLevel++;
+                            if (currentLevel > 3) {
+                                currentState = GAME_STATES.GAME_OVER;
+                                document.getElementById('hud').classList.add('hidden');
+                                document.getElementById('gameOverScreen').classList.remove('hidden');
+                                document.getElementById('finalScore').innerText = score;
+                            } else {
+                                setTimeout(startLevel, 1000);
+                            }
+                        }
+                    } else if(droppedZone) {
+                         grabbedCard.y -= 120; // Bounce back effect
+                    }
+                    grabbedCard = null;
+                }
+            } else {
+                let hoveredCard = null;
+                for (let i = activeCards.length - 1; i >= 0; i--) {
+                    if (isHovering(cursor.x, cursor.y, activeCards[i])) {
+                        hoveredCard = activeCards[i];
+                        break;
+                    }
+                }
+
+                if (hoveredCard) {
+                    cursorState = 'hover';
+                    if (justPinched) {
+                        grabbedCard = hoveredCard;
+                        grabbedOffset = { x: cursor.x - hoveredCard.x, y: cursor.y - hoveredCard.y };
+                        activeCards = activeCards.filter(c => c !== grabbedCard);
+                        activeCards.push(grabbedCard);
+                    }
+                } else {
+                    if (justPinched) triggerMiss();
+                    if (!isPinching && missTimer <= 0) cursorState = 'normal';
+                }
+            }
+        }
+        if (missTimer > 0) missTimer -= 16;
+    }
+
+    function triggerMiss() { cursorState = 'miss'; missTimer = 400; }
+    function isHovering(cx, cy, rect) { return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h; }
+
+    // ---------------- Rendering ----------------
+    function drawLoop() {
+        ctx.clearRect(0, 0, canvasW, canvasH);
+        let time = Date.now();
+
+        // 1. Draw Video
+        if (videoFrame) {
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoFrame, -canvasW, 0, canvasW, canvasH);
+            ctx.restore();
+        }
+
+        if (currentState === GAME_STATES.START) {
+            requestAnimationFrame(drawLoop); return;
+        }
+
+        checkInteractions();
+
+        // 2. Draw Drop Zones (Sci-Fi Style)
+        if (currentState === GAME_STATES.PLAYING) {
+            let pulse = Math.sin(time / 200) * 0.2 + 0.1; // Animated glow
+            
+            dropZones.forEach(zone => {
+                // Gradient Background
+                let grad = ctx.createLinearGradient(zone.x, zone.y, zone.x, zone.y + zone.h);
+                grad.addColorStop(0, `rgba(${zone.colorStr}, 0)`);
+                grad.addColorStop(1, `rgba(${zone.colorStr}, 0.4)`);
+                ctx.fillStyle = grad;
+                ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+                
+                // Glowing Top Border
+                ctx.shadowColor = `rgb(${zone.colorStr})`;
+                ctx.shadowBlur = 15;
+                ctx.strokeStyle = `rgba(${zone.colorStr}, ${0.5 + pulse})`;
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(zone.x, zone.y);
+                ctx.lineTo(zone.x + zone.w, zone.y);
+                ctx.stroke();
+                ctx.shadowBlur = 0; // Reset
+
+                // Label
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.font = 'bold 24px Kanit';
+                ctx.textAlign = 'center';
+                ctx.letterSpacing = "2px";
+                ctx.fillText(zone.label, zone.x + zone.w/2, zone.y + zone.h/2 + 20);
+            });
+        }
+
+        // 3. Draw Start Button (Canvas)
+        if (currentState === GAME_STATES.INSTRUCTIONS) {
+            let btnPulse = Math.sin(time / 150) * 5;
+            drawRoundedRect(ctx, startBtnData.x - btnPulse/2, startBtnData.y - btnPulse/2, startBtnData.w + btnPulse, startBtnData.h + btnPulse, 45, 'rgba(6, 182, 212, 0.2)', 'rgba(6, 182, 212, 0.8)');
+            ctx.strokeStyle = 'rgba(6, 182, 212, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(startBtnData.x - btnPulse/2, startBtnData.y - btnPulse/2, startBtnData.w + btnPulse, startBtnData.h + btnPulse);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 36px Kanit';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#06b6d4';
+            ctx.shadowBlur = 10;
+            ctx.fillText(startBtnData.text, startBtnData.x + startBtnData.w/2, startBtnData.y + startBtnData.h/2 + 12);
+            ctx.shadowBlur = 0;
+        }
+
+        // 4. Draw Cards (ปรับพื้นหลังให้เข้มทึบขึ้น)
+        if (currentState === GAME_STATES.PLAYING) {
+            activeCards.forEach(card => {
+                let isGrabbed = (card === grabbedCard);
+                let scale = isGrabbed ? 1.1 : 1;
+                
+                // Float animation if not grabbed
+                let floatY = isGrabbed ? 0 : Math.sin((time + card.baseY) / 500) * 10;
+                
+                let drawX = card.x - (card.w * scale - card.w)/2;
+                let drawY = card.y + floatY - (card.h * scale - card.h)/2;
+                let drawW = card.w * scale;
+                let drawH = card.h * scale;
+
+                // Card Gradient Background (Dark Glass)
+                let cardGrad = ctx.createLinearGradient(drawX, drawY, drawX + drawW, drawY + drawH);
+                cardGrad.addColorStop(0, isGrabbed ? 'rgba(8, 145, 178, 0.85)' : 'rgba(15, 23, 42, 0.90)'); 
+                cardGrad.addColorStop(1, isGrabbed ? 'rgba(3, 105, 161, 0.95)' : 'rgba(2, 6, 23, 0.98)');
+
+                drawRoundedRect(ctx, drawX, drawY, drawW, drawH, 20, cardGrad, isGrabbed ? 'rgba(6,182,212,0.8)' : 'rgba(0,0,0,0.8)');
+                
+                // Border (เพิ่มความสว่างของเส้นขอบให้ชัดขึ้น)
+                ctx.strokeStyle = isGrabbed ? 'rgba(103, 232, 249, 1)' : 'rgba(148, 163, 184, 0.6)';
+                ctx.lineWidth = isGrabbed ? 4 : 2;
+                ctx.stroke();
+
+                // Emoji (เพิ่มแสงเงา)
+                ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                ctx.shadowBlur = isGrabbed ? 0 : 8;
+                if (isGrabbed) {
+                    ctx.shadowColor = 'white';
+                    ctx.shadowBlur = 20;
+                }
+                ctx.font = `${isGrabbed ? 90 : 80}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText(card.emoji, drawX + drawW/2, drawY + drawH/2 - 5);
+                ctx.shadowBlur = 0;
+
+                // Text
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 22px Kanit';
+                ctx.shadowColor = 'black';
+                ctx.shadowBlur = 8;
+                ctx.fillText(card.name, drawX + drawW/2, drawY + drawH - 25);
+                ctx.shadowBlur = 0;
+            });
+        }
+
+        // 5. Draw Hand Skeleton (Neon Cyberpunk Style)
+        if (!usingMouse && handLandmarks) drawHandSkeleton(ctx, handLandmarks);
+
+        // 6. Draw Smart Cursor
+        drawCursor();
+
+        requestAnimationFrame(drawLoop);
+    }
+
+    function drawRoundedRect(ctx, x, y, width, height, radius, fillStyle, shadowColor) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        
+        ctx.shadowColor = shadowColor;
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetY = 10;
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawCursor() {
+        ctx.beginPath();
+        ctx.arc(cursor.x, cursor.y, cursorState === 'grab' ? 20 : 25, 0, 2 * Math.PI);
+        ctx.lineWidth = 3;
+        ctx.setLineDash([]); 
+        
+        ctx.shadowBlur = 15;
+
+        if (cursorState === 'normal') {
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.3)'; 
+            ctx.strokeStyle = '#06b6d4';
+            ctx.shadowColor = '#06b6d4';
+        } else if (cursorState === 'hover') {
+            ctx.fillStyle = 'rgba(234, 179, 8, 0.3)'; 
+            ctx.strokeStyle = '#facc15';
+            ctx.shadowColor = '#facc15';
+            ctx.setLineDash([6, 6]); 
+            // Rotation effect for dashed line
+            ctx.save();
+            ctx.translate(cursor.x, cursor.y);
+            ctx.rotate(Date.now() / 200);
+            ctx.arc(0, 0, 25, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.restore();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            return;
+        } else if (cursorState === 'grab') {
+            ctx.fillStyle = 'rgba(34, 197, 94, 0.5)'; 
+            ctx.strokeStyle = '#4ade80';
+            ctx.shadowColor = '#4ade80';
+        } else if (cursorState === 'miss') {
+            ctx.fillStyle = 'rgba(244, 63, 94, 0.5)'; 
+            ctx.strokeStyle = '#fb7185';
+            ctx.shadowColor = '#fb7185';
+        }
+        
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        
+        if (cursorState === 'grab') {
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✔️', cursor.x, cursor.y + 1);
+        }
+    }
+
+    function drawHandSkeleton(ctx, landmarks) {
+        ctx.save();
+        ctx.shadowColor = '#06b6d4';
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.6)'; // Neon Cyan lines
+        ctx.fillStyle = 'white'; // Nodes
+        ctx.lineWidth = 3;
+
+        const connections = [
+            [0,1],[1,2],[2,3],[3,4],
+            [0,5],[5,6],[6,7],[7,8],
+            [5,9],[9,10],[10,11],[11,12],
+            [9,13],[13,14],[14,15],[15,16],
+            [13,17],[0,17],[17,18],[18,19],[19,20]
+        ];
+
+        ctx.beginPath();
+        connections.forEach(pair => {
+            let p1 = landmarks[pair[0]];
+            let p2 = landmarks[pair[1]];
+            ctx.moveTo((1 - p1.x) * canvasW, p1.y * canvasH);
+            ctx.lineTo((1 - p2.x) * canvasW, p2.y * canvasH);
+        });
+        ctx.stroke();
+
+        landmarks.forEach((lm, index) => {
+            ctx.beginPath();
+            let isTip = (index === 4 || index === 8);
+            ctx.arc((1 - lm.x) * canvasW, lm.y * canvasH, isTip ? 6 : 3, 0, 2*Math.PI);
+            if(isTip) ctx.fillStyle = '#facc15'; 
+            else ctx.fillStyle = 'white';
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+</script>
+</body>
+</html>
